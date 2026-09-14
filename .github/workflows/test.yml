@@ -1,0 +1,85 @@
+name: CI Pipeline
+
+on:
+  - push
+  - pull_request
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - stable
+          - oldstable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ matrix.go }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Install Go dependencies
+        if: hashFiles('go.mod') != ''
+        run: go mod download
+
+      - name: Check Go formatting
+        if: hashFiles('go.mod') != ''
+        run: test -z "$(gofmt -l .)"
+
+      - name: Run Go vet
+        if: hashFiles('go.mod') != ''
+        run: go vet ./...
+
+      - name: Build Go packages
+        if: hashFiles('go.mod') != ''
+        run: go build ./...
+
+      - name: Run Go tests
+        if: hashFiles('go.mod') != ''
+        run: go test ./...
+
+      - name: Record Go ${{ matrix.go }} results
+        if: always()
+        shell: bash
+        env:
+          GO_STABLE_OUTCOME: ${{ steps.go-stable-install.outputs.outcome }}
+          GO_STABLE_FORMAT_OUTCOME: ${{ steps.go-stable-format.outputs.outcome }}
+          GO_STABLE_VET_OUTCOME: ${{ steps.go-stable-vet.outputs.outcome }}
+          GO_STABLE_BUILD_OUTCOME: ${{ steps.go-stable-build.outputs.outcome }}
+          GO_STABLE_TEST_OUTCOME: ${{ steps.go-stable-test.outputs.outcome }}
+          GO_OLDSTABLE_OUTCOME: ${{ steps.go-oldstable-install.outputs.outcome }}
+          GO_OLDSTABLE_FORMAT_OUTCOME: ${{ steps.go-oldstable-format.outputs.outcome }}
+          GO_OLDSTABLE_VET_OUTCOME: ${{ steps.go-oldstable-vet.outputs.outcome }}
+          GO_OLDSTABLE_BUILD_OUTCOME: ${{ steps.go-oldstable-build.outputs.outcome }}
+          GO_OLDSTABLE_TEST_OUTCOME: ${{ steps.go-oldstable-test.outputs.outcome }}
+        run: |
+          { \
+            echo '### CI Pipeline Results'; \
+            echo; \
+            echo '| Runtime | Dependencies | Format | Vet | Build | Tests |'; \
+            echo '|---|---|---|---|---|---|'; \
+            printf '| stable | %s | %s | %s | %s | %s |\n' \
+              "$GO_STABLE_OUTCOME" \
+              "$GO_STABLE_FORMAT_OUTCOME" \
+              "$GO_STABLE_VET_OUTCOME" \
+              "$GO_STABLE_BUILD_OUTCOME" \
+              "$GO_STABLE_TEST_OUTCOME"; \
+            printf '| oldstable | %s | %s | %s | %s | %s |\n' \
+              "$GO_OLDSTABLE_OUTCOME" \
+              "$GO_OLDSTABLE_FORMAT_OUTCOME" \
+              "$GO_OLDSTABLE_VET_OUTCOME" \
+              "$GO_OLDSTABLE_BUILD_OUTCOME" \
+              "$GO_OLDSTABLE_TEST_OUTCOME"; \
+          } >> "$GITHUB_STEP_SUMMARY"
